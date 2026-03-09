@@ -1,0 +1,181 @@
+# =============================================================================
+# CI Pipeline — Azure Community Health Platform (Bicep)
+# Validates and publishes Bicep artifacts to Azure Storage as versioned artifact
+# Runs on: Azure DevOps (TFS) — triggered on main branch pushes
+# =============================================================================
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - infra/**
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - infra/**
+
+variables:
+  - name: artifactStorageAccount
+    value: 'stbicepartifacts'
+  - name: artifactContainer
+    value: 'bicep-artifacts'
+  - name: azureServiceConnection
+    value: 'AzureServiceConnection'
+  - name: resourceGroup
+    value: 'rg-community-health-$(environment)'
+  - name: buildVersion
+    value: '$(Build.BuildNumber)'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  # ──────────────────────────────────────────────
+  # Stage 1 — Validate Bicep Templates
+  # ──────────────────────────────────────────────
+  - stage: Validate
+    displayName: '🔍 Validate Bicep Templates'
+    jobs:
+      - job: LintAndValidate
+        displayName: 'Lint & Validate'
+        steps:
+          - checkout: self
+            fetchDepth: 1
+
+          - task: AzureCLI@2
+            displayName: 'Install/Verify Bicep CLI'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az bicep install
+                az bicep version
+
+          - task: AzureCLI@2
+            displayName: 'Lint Bicep Files'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                echo "========================================="
+                echo "  Linting all Bicep files"
+                echo "========================================="
+                find infra -name '*.bicep' | while read f; do
+                  echo "  Linting: $f"
+                  az bicep lint --file "$f" || exit 1
+                done
+                echo "✅ All Bicep files passed linting"
+
+          - task: AzureCLI@2
+            displayName: 'Validate — DEV'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az deployment group validate \
+                  --resource-group rg-community-health-dev \
+                  --template-file infra/main.bicep \
+                  --parameters infra/parameters/dev.bicepparam
+
+          - task: AzureCLI@2
+            displayName: 'What-If — DEV'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az deployment group what-if \
+                  --resource-group rg-community-health-dev \
+                  --template-file infra/main.bicep \
+                  --parameters infra/parameters/dev.bicepparam
+
+  # ──────────────────────────────────────────────
+  # Stage 2 — Build ARM Template & Publish Artifact
+  # ──────────────────────────────────────────────
+  - stage: Build
+    displayName: '📦 Build & Publish Artifact'
+    dependsOn: Validate
+    jobs:
+      - job: BuildArtifact
+        displayName: 'Compile Bicep → ARM & Upload to Storage'
+        steps:
+          - checkout: self
+            fetchDepth: 1
+
+          - task: AzureCLI@2
+            displayName: 'Compile Bicep to ARM JSON'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                mkdir -p $(Build.ArtifactStagingDirectory)/arm
+                az bicep build \
+                  --file infra/main.bicep \
+                  --outfile $(Build.ArtifactStagingDirectory)/arm/main.json
+                echo "✅ Bicep compiled to ARM template"
+
+          - script: |
+              mkdir -p $(Build.ArtifactStagingDirectory)/parameters
+              cp infra/parameters/*.bicepparam $(Build.ArtifactStagingDirectory)/parameters/
+              echo "✅ Parameter files copied"
+            displayName: 'Copy Parameter Files'
+
+          - script: |
+              cat > $(Build.ArtifactStagingDirectory)/manifest.json << EOF
+              {
+                "project": "azure-community-health-platform",
+                "version": "$(buildVersion)",
+                "buildId": "$(Build.BuildId)",
+                "sourceCommit": "$(Build.SourceVersion)",
+                "sourceBranch": "$(Build.SourceBranchName)",
+                "buildDate": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+                "files": [
+                  "arm/main.json",
+                  "parameters/dev.bicepparam",
+                  "parameters/staging.bicepparam",
+                  "parameters/prod.bicepparam"
+                ]
+              }
+              EOF
+              echo "✅ Manifest generated"
+            displayName: 'Generate Artifact Manifest'
+
+          # Publish as ADO pipeline artifact (for release pipeline)
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Pipeline Artifact'
+            inputs:
+              targetPath: $(Build.ArtifactStagingDirectory)
+              artifactName: 'bicep-infra-$(buildVersion)'
+
+          # Upload versioned artifact to Azure Storage Account
+          - task: AzureCLI@2
+            displayName: 'Upload Versioned Artifact to Azure Storage'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                ARTIFACT_PATH="artifacts/community-health/$(buildVersion)"
+
+                echo "📤 Uploading artifact version $(buildVersion) to storage..."
+
+                az storage blob upload-batch \
+                  --account-name $(artifactStorageAccount) \
+                  --destination $(artifactContainer) \
+                  --destination-path "$ARTIFACT_PATH" \
+                  --source $(Build.ArtifactStagingDirectory) \
+                  --auth-mode login \
+                  --overwrite
+
+                echo "✅ Artifact uploaded to: $(artifactContainer)/$ARTIFACT_PATH"
+                echo "##vso[task.setvariable variable=artifactPath;isOutput=true]$ARTIFACT_PATH"

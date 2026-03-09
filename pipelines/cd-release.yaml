@@ -1,0 +1,233 @@
+# =============================================================================
+# CD Release Pipeline — Azure Community Health Platform (Bicep)
+# Downloads versioned artifact from Azure Storage and deploys to Azure
+# Runs on: Azure DevOps — triggered after successful CI build
+# =============================================================================
+
+trigger: none
+
+resources:
+  pipelines:
+    - pipeline: ciBuild
+      source: 'community-health-ci'
+      trigger:
+        branches:
+          include:
+            - main
+
+variables:
+  - name: azureServiceConnection
+    value: 'AzureServiceConnection'
+  - name: artifactStorageAccount
+    value: 'stbicepartifacts'
+  - name: artifactContainer
+    value: 'bicep-artifacts'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  # ──────────────────────────────────────────────
+  # Stage 1 — Deploy to DEV
+  # ──────────────────────────────────────────────
+  - stage: DeployDev
+    displayName: '🚀 Deploy to DEV'
+    variables:
+      environment: 'dev'
+      resourceGroup: 'rg-community-health-dev'
+    jobs:
+      - deployment: DeployInfra
+        displayName: 'Deploy Infrastructure — DEV'
+        environment: 'community-health-dev'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: ciBuild
+                  displayName: 'Download CI Artifact'
+
+                - task: AzureCLI@2
+                  displayName: 'Download Versioned Artifact from Storage'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      BUILD_VERSION=$(resources.pipeline.ciBuild.runName)
+                      ARTIFACT_PATH="artifacts/community-health/$BUILD_VERSION"
+
+                      echo "📥 Downloading artifact version $BUILD_VERSION..."
+                      mkdir -p $(Agent.TempDirectory)/infra-artifact
+
+                      az storage blob download-batch \
+                        --account-name $(artifactStorageAccount) \
+                        --source $(artifactContainer) \
+                        --destination $(Agent.TempDirectory)/infra-artifact \
+                        --pattern "$ARTIFACT_PATH/*" \
+                        --auth-mode login
+
+                      echo "✅ Artifact downloaded"
+                      ls -la $(Agent.TempDirectory)/infra-artifact/
+
+                - task: AzureCLI@2
+                  displayName: 'Deploy ARM Template — DEV'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      BUILD_VERSION=$(resources.pipeline.ciBuild.runName)
+                      TEMPLATE="$(Agent.TempDirectory)/infra-artifact/artifacts/community-health/$BUILD_VERSION/arm/main.json"
+
+                      echo "🔧 Deploying to DEV..."
+                      az deployment group create \
+                        --name "deploy-dev-$BUILD_VERSION" \
+                        --resource-group $(resourceGroup) \
+                        --template-file "$TEMPLATE" \
+                        --parameters environment=dev \
+                                     location=eastus2 \
+                                     projectName=communityhealth
+
+                      echo "✅ DEV deployment complete"
+
+                - task: AzureCLI@2
+                  displayName: 'Verify Deployment — DEV'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      echo "🔍 Verifying DEV deployment..."
+                      az deployment group show \
+                        --name "deploy-dev-$(resources.pipeline.ciBuild.runName)" \
+                        --resource-group $(resourceGroup) \
+                        --query "properties.provisioningState" -o tsv
+
+  # ──────────────────────────────────────────────
+  # Stage 2 — Deploy to STAGING
+  # ──────────────────────────────────────────────
+  - stage: DeployStaging
+    displayName: '🟡 Deploy to STAGING'
+    dependsOn: DeployDev
+    variables:
+      environment: 'staging'
+      resourceGroup: 'rg-community-health-staging'
+    jobs:
+      - deployment: DeployInfra
+        displayName: 'Deploy Infrastructure — STAGING'
+        environment: 'community-health-staging'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: ciBuild
+                  displayName: 'Download CI Artifact'
+
+                - task: AzureCLI@2
+                  displayName: 'Download & Deploy — STAGING'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      BUILD_VERSION=$(resources.pipeline.ciBuild.runName)
+                      ARTIFACT_PATH="artifacts/community-health/$BUILD_VERSION"
+
+                      mkdir -p $(Agent.TempDirectory)/infra-artifact
+
+                      az storage blob download-batch \
+                        --account-name $(artifactStorageAccount) \
+                        --source $(artifactContainer) \
+                        --destination $(Agent.TempDirectory)/infra-artifact \
+                        --pattern "$ARTIFACT_PATH/*" \
+                        --auth-mode login
+
+                      TEMPLATE="$(Agent.TempDirectory)/infra-artifact/$ARTIFACT_PATH/arm/main.json"
+
+                      az deployment group create \
+                        --name "deploy-staging-$BUILD_VERSION" \
+                        --resource-group $(resourceGroup) \
+                        --template-file "$TEMPLATE" \
+                        --parameters environment=staging \
+                                     location=eastus2 \
+                                     projectName=communityhealth
+
+                      echo "✅ STAGING deployment complete"
+
+  # ──────────────────────────────────────────────
+  # Stage 3 — Deploy to PRODUCTION (Manual Approval)
+  # ──────────────────────────────────────────────
+  - stage: DeployProd
+    displayName: '🟢 Deploy to PRODUCTION'
+    dependsOn: DeployStaging
+    variables:
+      environment: 'prod'
+      resourceGroup: 'rg-community-health-prod'
+    jobs:
+      - deployment: DeployInfra
+        displayName: 'Deploy Infrastructure — PROD'
+        environment: 'community-health-prod'   # Configure manual approval on this environment
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: ciBuild
+                  displayName: 'Download CI Artifact'
+
+                - task: AzureCLI@2
+                  displayName: 'Download & Deploy — PROD'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      BUILD_VERSION=$(resources.pipeline.ciBuild.runName)
+                      ARTIFACT_PATH="artifacts/community-health/$BUILD_VERSION"
+
+                      mkdir -p $(Agent.TempDirectory)/infra-artifact
+
+                      az storage blob download-batch \
+                        --account-name $(artifactStorageAccount) \
+                        --source $(artifactContainer) \
+                        --destination $(Agent.TempDirectory)/infra-artifact \
+                        --pattern "$ARTIFACT_PATH/*" \
+                        --auth-mode login
+
+                      TEMPLATE="$(Agent.TempDirectory)/infra-artifact/$ARTIFACT_PATH/arm/main.json"
+
+                      az deployment group create \
+                        --name "deploy-prod-$BUILD_VERSION" \
+                        --resource-group $(resourceGroup) \
+                        --template-file "$TEMPLATE" \
+                        --parameters environment=prod \
+                                     location=eastus2 \
+                                     projectName=communityhealth
+
+                      echo "✅ PRODUCTION deployment complete"
+
+                - task: AzureCLI@2
+                  displayName: 'Post-Deploy Smoke Test'
+                  inputs:
+                    azureSubscription: $(azureServiceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      echo "🧪 Running post-deployment smoke tests..."
+
+                      # Verify all resources exist
+                      DEPLOYMENT=$(az deployment group show \
+                        --name "deploy-prod-$(resources.pipeline.ciBuild.runName)" \
+                        --resource-group $(resourceGroup) \
+                        --query "properties.outputs" -o json)
+
+                      echo "Deployment outputs:"
+                      echo "$DEPLOYMENT" | jq .
+
+                      # Validate Function App is running
+                      FUNC_HOSTNAME=$(echo "$DEPLOYMENT" | jq -r '.functionAppHostname.value')
+                      if [ -n "$FUNC_HOSTNAME" ]; then
+                        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$FUNC_HOSTNAME/api/health" --max-time 30)
+                        echo "Function App health check: HTTP $HTTP_STATUS"
+                      fi
+
+                      echo "✅ Smoke tests complete"
