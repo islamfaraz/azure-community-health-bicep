@@ -84,6 +84,5 @@ resource listenAuthRule 'Microsoft.EventHub/namespaces/authorizationRules@2024-0
 
 output namespaceName string = eventHubNamespace.name
 output eventHubName string = eventHub.name
-@description('Connection string — store in Key Vault, do not expose in deployment logs')
-output connectionString string = sendAuthRule.listKeys().primaryConnectionString
 output namespaceId string = eventHubNamespace.id
+output sendAuthRuleId string = sendAuthRule.id

@@ -3,6 +3,7 @@
 // ============================================================================
 
 @description('Name prefix for resources')
+@minLength(3)
 param namePrefix string
 
 @description('Azure region')
@@ -18,7 +19,7 @@ param uniqueSuffix string
 // Variables
 // ============================================================================
 
-var storageAccountName = 'st${take(replace(namePrefix, '-', ''), 10)}${take(uniqueSuffix, 6)}'
+var storageAccountName = 'st${take(replace(namePrefix, '-', ''), 10)}${take(uniqueSuffix, 8)}'
 
 // ============================================================================
 // Resources

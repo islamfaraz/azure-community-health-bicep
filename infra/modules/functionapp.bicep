@@ -26,16 +26,8 @@ param storageAccountName string
 @description('Cosmos DB endpoint')
 param cosmosDbEndpoint string
 
-@description('Cosmos DB primary key')
-@secure()
-param cosmosDbKey string
-
 @description('Event Hub name')
 param eventHubName string
-
-@description('Event Hub connection string')
-@secure()
-param eventHubConnectionString string
 
 @description('Key Vault URI')
 param keyVaultUri string
