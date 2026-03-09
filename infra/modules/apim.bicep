@@ -163,7 +163,7 @@ resource rateLimitPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-09-
           <rate-limit calls="100" renewal-period="60" />
           <cors>
             <allowed-origins>
-              <origin>*</origin>
+              <origin>https://portal.communityhealth.org</origin>
             </allowed-origins>
             <allowed-methods>
               <method>GET</method>

@@ -46,6 +46,7 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 // ============================================================================
 
 output appInsightsName string = appInsights.name
+// Note: Instrumentation key is deprecated in favor of connection string
 output instrumentationKey string = appInsights.properties.InstrumentationKey
 output connectionString string = appInsights.properties.ConnectionString
 output logAnalyticsWorkspaceId string = logAnalytics.id

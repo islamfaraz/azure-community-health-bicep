@@ -36,30 +36,14 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     softDeleteRetentionInDays: 90
     enablePurgeProtection: true
     networkAcls: {
-      defaultAction: 'Allow'
+      defaultAction: 'Deny'
       bypass: 'AzureServices'
     }
   }
 }
 
-resource diagnosticSettings 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {
-  name: 'kv-diagnostics'
-  scope: keyVault
-  properties: {
-    metrics: [
-      {
-        category: 'AllMetrics'
-        enabled: true
-      }
-    ]
-    logs: [
-      {
-        categoryGroup: 'allLogs'
-        enabled: true
-      }
-    ]
-  }
-}
+// Note: Diagnostic settings require a Log Analytics workspace ID or storage account ID.
+// Pass logAnalyticsWorkspaceId as parameter when available to enable diagnostic logging.
 
 // ============================================================================
 // Outputs

@@ -101,11 +101,11 @@ module functionApp 'modules/functionapp.bicep' = {
     appInsightsConnectionString: appInsights.outputs.connectionString
     storageAccountName: storage.outputs.storageAccountName
     cosmosDbEndpoint: cosmosDb.outputs.endpoint
-    cosmosDbKey: cosmosDb.outputs.primaryKey
-    eventHubNamespaceName: eventHub.outputs.namespaceName
+    cosmosDbKey: cosmosDb.outputs.endpoint // Placeholder — actual key stored in Key Vault
     eventHubName: eventHub.outputs.eventHubName
     eventHubConnectionString: eventHub.outputs.connectionString
     keyVaultUri: keyVault.outputs.vaultUri
+    keyVaultName: keyVault.outputs.keyVaultName
   }
 }
 

@@ -30,9 +30,6 @@ param cosmosDbEndpoint string
 @secure()
 param cosmosDbKey string
 
-@description('Event Hub namespace name')
-param eventHubNamespaceName string
-
 @description('Event Hub name')
 param eventHubName string
 
@@ -42,6 +39,9 @@ param eventHubConnectionString string
 
 @description('Key Vault URI')
 param keyVaultUri string
+
+@description('Key Vault name for Key Vault references')
+param keyVaultName string
 
 // ============================================================================
 // Resources
@@ -79,8 +79,8 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
       http20Enabled: true
       appSettings: [
         {
-          name: 'AzureWebJobsStorage'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccountName};EndpointSuffix=${az.environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+          name: 'AzureWebJobsStorage__accountName'
+          value: storageAccountName
         }
         {
           name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
@@ -112,7 +112,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         }
         {
           name: 'CosmosDb__Key'
-          value: cosmosDbKey
+          value: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=CosmosDbKey)'
         }
         {
           name: 'CosmosDb__DatabaseName'
@@ -120,7 +120,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         }
         {
           name: 'EventHub__ConnectionString'
-          value: eventHubConnectionString
+          value: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=EventHubConnectionString)'
         }
         {
           name: 'EventHub__Name'

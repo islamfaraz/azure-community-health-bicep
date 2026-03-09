@@ -44,8 +44,8 @@ resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-02-15-preview
     ]
     enableAutomaticFailover: environment == 'prod'
     enableMultipleWriteLocations: false
-    publicNetworkAccess: 'Enabled'
-    disableKeyBasedMetadataWriteAccess: false
+    publicNetworkAccess: environment == 'prod' ? 'Disabled' : 'Enabled'
+    disableKeyBasedMetadataWriteAccess: true
     backupPolicy: {
       type: 'Periodic'
       periodicModeProperties: {
@@ -150,5 +150,5 @@ resource alertsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/con
 
 output accountName string = cosmosAccount.name
 output endpoint string = cosmosAccount.properties.documentEndpoint
-output primaryKey string = cosmosAccount.listKeys().primaryMasterKey
 output databaseName string = database.name
+output accountId string = cosmosAccount.id

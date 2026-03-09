@@ -27,8 +27,6 @@ variables:
     value: 'bicep-artifacts'
   - name: azureServiceConnection
     value: 'AzureServiceConnection'
-  - name: resourceGroup
-    value: 'rg-community-health-$(environment)'
   - name: buildVersion
     value: '$(Build.BuildNumber)'
 
@@ -99,11 +97,41 @@ stages:
                   --parameters infra/parameters/dev.bicepparam
 
   # ──────────────────────────────────────────────
-  # Stage 2 — Build ARM Template & Publish Artifact
+  # Stage 2 — Security Scanning (DevSecOps)
+  # ──────────────────────────────────────────────
+  - stage: SecurityScan
+    displayName: '🛡️ Security Scanning'
+    dependsOn: Validate
+    jobs:
+      - job: IaCSecurityScan
+        displayName: 'IaC Security Analysis'
+        steps:
+          - checkout: self
+            fetchDepth: 1
+
+          - script: |
+              pip install checkov
+              checkov --directory infra --framework bicep --output cli --soft-fail
+              echo "✅ Checkov IaC security scan complete"
+            displayName: 'Run Checkov — IaC Security Scan'
+
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.x'
+
+          - script: |
+              pip install detect-secrets
+              detect-secrets scan --all-files --exclude-files '\.git/.*' > .secrets-baseline.json
+              detect-secrets audit --report --json .secrets-baseline.json || true
+              echo "✅ Secret detection complete"
+            displayName: 'Detect Hardcoded Secrets'
+
+  # ──────────────────────────────────────────────
+  # Stage 3 — Build ARM Template & Publish Artifact
   # ──────────────────────────────────────────────
   - stage: Build
     displayName: '📦 Build & Publish Artifact'
-    dependsOn: Validate
+    dependsOn: SecurityScan
     jobs:
       - job: BuildArtifact
         displayName: 'Compile Bicep → ARM & Upload to Storage'
